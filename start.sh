@@ -58,6 +58,21 @@ for i in $(seq 1 18); do
   sleep 5
 done
 
+# Build the Web UI URL
+if [ -n "$CODESPACE_NAME" ] && [ -n "$GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN" ]; then
+  WEB_URL="https://${CODESPACE_NAME}-8081.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
+else
+  WEB_URL="http://localhost:8081"
+fi
+
+# Wait for web client too (up to 30 more seconds)
+for i in $(seq 1 6); do
+  if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
+    break
+  fi
+  sleep 5
+done
+
 # Check if web client is up
 if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
   echo ""
@@ -65,8 +80,8 @@ if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
   echo "  pgEdge MCP Server Demo is running!"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "  Web UI:   Open the 'Ports' tab and click port 8081"
-  echo "  Login:    demo / demo123"
+  echo "  Web UI:  $WEB_URL"
+  echo "  Login:   demo / demo123"
   echo ""
   echo "  Try asking:"
   echo "    What tables are in the database?"
@@ -78,5 +93,6 @@ if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
 else
   echo ""
   echo "Services are starting. Check progress with: docker compose logs -f"
+  echo "Once ready, open: $WEB_URL"
   echo ""
 fi
