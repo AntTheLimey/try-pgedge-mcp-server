@@ -18,10 +18,14 @@ You'll need an API key from one of:
 **Option A (smoothest):** Add your key as a
 [Codespace secret](https://github.com/settings/codespaces) before
 launching. Create a secret named `PGEDGE_ANTHROPIC_API_KEY`, paste your
-key, and grant access to this repo.
+key, and grant access to this repo. The demo picks it up automatically.
 
-**Option B:** Launch the Codespace and paste your key when prompted in
-the terminal.
+**Option B:** Launch the Codespace, then run in the terminal:
+
+```bash
+./set-key.sh anthropic sk-ant-your-key-here
+docker compose down && docker compose up -d
+```
 
 ## What's inside
 
