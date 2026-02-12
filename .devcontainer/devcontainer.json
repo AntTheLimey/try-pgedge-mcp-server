@@ -15,12 +15,13 @@
       "onAutoForward": "silent"
     }
   },
-  "postCreateCommand": "bash setup.sh",
-  "postStartCommand": "docker compose up -d",
+  "onCreateCommand": "cp .env.example .env",
+  "postStartCommand": "bash start.sh",
   "customizations": {
     "vscode": {
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash"
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "workbench.startupEditor": "readme"
       }
     }
   }

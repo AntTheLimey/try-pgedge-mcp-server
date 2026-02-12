@@ -8,24 +8,23 @@ query in under 60 seconds.
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/AntTheLimey/try-pgedge-mcp-server)
 
-### Before you launch
+### Setup
 
-You'll need an API key from one of:
+You need an API key from [Anthropic](https://console.anthropic.com/)
+or [OpenAI](https://platform.openai.com/).
 
-- [Anthropic](https://console.anthropic.com/) (recommended)
-- [OpenAI](https://platform.openai.com/)
+**Fastest:** Before launching, add a
+[Codespace secret](https://github.com/settings/codespaces) named
+`PGEDGE_ANTHROPIC_API_KEY` with your key, and grant access to this repo.
+Everything starts automatically — no steps required.
 
-**Option A (smoothest):** Add your key as a
-[Codespace secret](https://github.com/settings/codespaces) before
-launching. Create a secret named `PGEDGE_ANTHROPIC_API_KEY`, paste your
-key, and grant access to this repo. The demo picks it up automatically.
+**After launch:** If you didn't set a secret, run this in the terminal:
 
-**Option B:** Launch the Codespace, then run in the terminal:
-
-```bash
-./set-key.sh anthropic sk-ant-your-key-here
-docker compose down && docker compose up -d
 ```
+./set-key.sh anthropic sk-ant-your-key-here
+```
+
+That's it. Services start, and the Web UI opens automatically.
 
 ## What's inside
 
@@ -38,7 +37,7 @@ docker compose down && docker compose up -d
 
 ## Try these queries
 
-Once the Web UI opens in your browser (login: `demo` / `demo123`):
+Login: `demo` / `demo123`
 
 - "What tables are in the database?"
 - "Show me the top 10 products by sales"
@@ -49,17 +48,10 @@ Once the Web UI opens in your browser (login: `demo` / `demo123`):
 ## Managing the demo
 
 ```bash
-# View logs
-docker compose logs -f
-
-# Restart services
-docker compose restart
-
-# Stop everything
-docker compose down
-
-# Stop and reset data
-docker compose down -v
+docker compose logs -f          # View logs
+docker compose restart          # Restart services
+docker compose down             # Stop
+docker compose down -v          # Stop and reset data
 ```
 
 ## Learn more
