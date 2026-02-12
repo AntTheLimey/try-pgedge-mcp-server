@@ -32,20 +32,26 @@ Wait for the user to share the output.
 
 Read the output the user pasted. Look for:
 
-- **"✓ Binary installed"** — the MCP server downloaded successfully.
-- **"✓ Demo database ready"** — a sample Postgres database with test
-  data is running. This is the ideal outcome.
-- **"Docker not found"** — no demo database was set up. You will need
-  to ask the user if they have a Postgres database to connect to, or
-  help them install Docker Desktop first.
+- **"✓ Binary installed"** and **"✓ Demo database ready"** — everything
+  worked. Proceed to Step 3.
+- **"✓ Binary installed"** and **user chose option 2 (own database)** —
+  the installer prompted for connection details. Check the summary to
+  confirm the database was configured. Proceed to Step 3.
+- **"Docker is not installed or not running"** — the installer will have
+  offered the user three options: install Docker, use their own database,
+  or install Docker manually later. Help them with whichever path they
+  chose. If they need Docker, on Mac with Homebrew it's
+  `brew install --cask docker`, otherwise download from
+  https://www.docker.com/products/docker-desktop/. After installing
+  Docker, they need to re-run the install command from Step 1.
 - **"✗" (any error)** — something went wrong. Help the user
   troubleshoot based on the error message.
 
 If everything succeeded, tell the user:
 
-> Great, the pgEdge MCP Server is installed and your demo database is
-> running! Now we need to restart Claude Desktop so it can connect to
-> the MCP server.
+> Great, the pgEdge MCP Server is installed and your database is
+> configured! Now we need to restart Claude Desktop so it can connect
+> to the MCP server.
 
 ---
 
