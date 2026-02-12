@@ -139,22 +139,49 @@ function Install-Binary {
 
 # --- Docker detection and installation ------------------------------------
 
-function Test-Docker {
+function Test-DockerInstalled {
+    # Is the docker CLI on PATH?
+    return [bool](Get-Command docker -ErrorAction SilentlyContinue)
+}
+
+function Test-DockerRunning {
+    # Is the Docker daemon actually responding?
+    if (-not (Test-DockerInstalled)) { return $false }
+    # Temporarily relax error handling — docker info writes to stderr
+    # which PowerShell converts to a terminating error under 'Stop' mode
+    $prevPref = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
     try {
-        $null = & docker info 2>&1
+        $null = & docker info 2>$null
         return $LASTEXITCODE -eq 0
     } catch {
         return $false
+    } finally {
+        $ErrorActionPreference = $prevPref
     }
 }
 
 function Install-DockerDesktop {
+    # If Docker is already installed but just not running, don't reinstall
+    if (Test-DockerInstalled) {
+        Write-Host ""
+        Write-Warn "Docker is installed but not running."
+        Write-Host ""
+        Write-Host "  Please open Docker Desktop from the Start menu and wait"
+        Write-Host "  for it to finish starting (the whale icon in the taskbar"
+        Write-Host "  will stop animating when it's ready)."
+        Write-Host ""
+        Write-Host "  Then re-run this installer."
+        Write-Host ""
+        exit 0
+    }
+
     Write-Host ""
-    Write-Info "Installing Docker..."
+    Write-Info "Installing Docker Desktop..."
     Write-Host ""
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Info "Installing Docker Desktop via winget (this may take several minutes)..."
+        Write-Info "Installing via winget (this may take several minutes)..."
         & winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements
         Write-Host ""
         Write-Info "Docker Desktop installed. Please open Docker Desktop from"
@@ -233,14 +260,49 @@ function Select-Database {
 # --- Demo database setup --------------------------------------------------
 
 function Start-DemoDatabase {
-    if (Test-Docker) {
+    if (Test-DockerRunning) {
         Start-DemoPostgres
         return
     }
 
-    # Docker not available
+    # Docker installed but not running?
+    if (Test-DockerInstalled) {
+        Write-Host ""
+        Write-Warn "Docker is installed but not running."
+        Write-Host ""
+        Write-Host "  Please open Docker Desktop from the Start menu and wait"
+        Write-Host "  for it to finish starting, then re-run this installer."
+        Write-Host ""
+
+        if (-not (Test-Interactive)) {
+            Write-Host "DOCKER_NOT_RUNNING"
+            Write-Host "Start Docker Desktop, then re-run with: -Demo"
+            $script:DbConfigured = $false
+            return
+        }
+
+        Write-Host "  Options:"
+        Write-Host ""
+        Write-Host "    1) I'll start Docker Desktop and re-run this later"
+        Write-Host "    2) Connect to my own database instead"
+        Write-Host ""
+
+        $choice = Read-Prompt "  Enter 1 or 2" "1"
+        switch ($choice) {
+            "2" { Set-OwnDatabase }
+            default {
+                Write-Host ""
+                Write-Host "  Open Docker Desktop, wait for it to start, then re-run this installer."
+                Write-Host ""
+                $script:DbConfigured = $false
+            }
+        }
+        return
+    }
+
+    # Docker not installed at all
     Write-Host ""
-    Write-Warn "Docker is not installed or not running."
+    Write-Warn "Docker is not installed."
     Write-Host ""
     Write-Host "  The sample database runs in a Docker container."
     Write-Host "  Docker Desktop is free and takes about 5 minutes to install."
@@ -303,12 +365,17 @@ function Find-FreePort {
 # --- Start demo Postgres container ----------------------------------------
 
 function Start-DemoPostgres {
+    # Relax error handling for all docker CLI calls in this function
+    $prevPref = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+
     # Check if already running
     $running = & docker ps --format '{{.Names}}' 2>$null | Select-String "pgedge-demo-db"
     if ($running) {
         $portMapping = & docker port pgedge-demo-db 5432 2>$null | Select-Object -First 1
         if ($portMapping) {
             $existingPort = ($portMapping -split ':')[-1].Trim()
+            $ErrorActionPreference = $prevPref
             Write-Ok "Demo database already running on port $existingPort"
             $script:DbHost = "localhost"; $script:DbPort = $existingPort
             $script:DbName = "northwind"; $script:DbUser = "demo"
@@ -319,6 +386,7 @@ function Start-DemoPostgres {
 
     $script:DemoPort = Find-FreePort
     if ($script:DemoPort -eq 0) {
+        $ErrorActionPreference = $prevPref
         Write-Warn "Could not find a free port for the demo database."
         $script:DbConfigured = $false
         return
@@ -393,19 +461,20 @@ configs:
     Write-Info "(first run downloads the image - this may take a minute)"
     Write-Host ""
 
-    try {
-        & docker compose -f (Join-Path $DemoDir "docker-compose.yml") up -d 2>$null
-        if ($LASTEXITCODE -ne 0) { throw "docker compose failed" }
-    } catch {
-        try {
-            & docker-compose -f (Join-Path $DemoDir "docker-compose.yml") up -d 2>$null
-            if ($LASTEXITCODE -ne 0) { throw "docker-compose failed" }
-        } catch {
+    $composeFile = Join-Path $DemoDir "docker-compose.yml"
+    & docker compose -f $composeFile up -d 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        & docker-compose -f $composeFile up -d 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            $ErrorActionPreference = $prevPref
             Write-Warn "Failed to start demo database."
             $script:DbConfigured = $false
             return
         }
     }
+
+    # Restore error handling for the rest
+    $ErrorActionPreference = $prevPref
 
     Write-Info "Waiting for database to be ready..."
     for ($i = 0; $i -lt 24; $i++) {
