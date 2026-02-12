@@ -4,6 +4,33 @@ Talk to your PostgreSQL database in plain English. This demo gives you a
 running pgEdge MCP Server with the Northwind sample database — ready to
 query in under 60 seconds.
 
+## Install locally (Claude Code or Claude Desktop)
+
+One command installs the MCP server binary and a demo Postgres database
+with sample data.
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AntTheLimey/try-pgedge-mcp-server/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/AntTheLimey/try-pgedge-mcp-server/main/install.ps1 | iex
+```
+
+The installer will:
+1. Download the pgEdge MCP Server binary
+2. Optionally start a demo Postgres container (requires Docker)
+3. Configure Claude Code (`.mcp.json`) and Claude Desktop automatically
+
+After installing, restart Claude Desktop and ask:
+*"What tables are in my database?"*
+
+---
+
 ## Open in GitHub Codespaces
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/AntTheLimey/try-pgedge-mcp-server)

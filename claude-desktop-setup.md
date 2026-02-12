@@ -12,13 +12,28 @@ user may not be a developer.
 
 ## Step 1: Run the installer
 
-Tell the user:
+First, determine the user's operating system. Then tell them the
+appropriate command.
+
+**For Mac or Linux users:**
 
 > Open your **Terminal** app (on Mac, search for "Terminal" in Spotlight)
 > and paste this command, then press Enter:
 >
 > ```
 > curl -fsSL https://raw.githubusercontent.com/AntTheLimey/try-pgedge-mcp-server/main/install.sh | bash
+> ```
+>
+> This will take about 30–60 seconds. When it's done, you'll see a
+> summary. Please paste the output here so I can check everything worked.
+
+**For Windows users:**
+
+> Open **PowerShell** (search the Start menu for "PowerShell") and paste
+> this command, then press Enter:
+>
+> ```
+> irm https://raw.githubusercontent.com/AntTheLimey/try-pgedge-mcp-server/main/install.ps1 | iex
 > ```
 >
 > This will take about 30–60 seconds. When it's done, you'll see a
@@ -40,10 +55,12 @@ Read the output the user pasted. Look for:
 - **"Docker is not installed or not running"** — the installer will have
   offered the user three options: install Docker, use their own database,
   or install Docker manually later. Help them with whichever path they
-  chose. If they need Docker, on Mac with Homebrew it's
-  `brew install --cask docker`, otherwise download from
-  https://www.docker.com/products/docker-desktop/. After installing
-  Docker, they need to re-run the install command from Step 1.
+  chose. If they need Docker:
+  - **Mac with Homebrew:** `brew install --cask docker`
+  - **Windows with winget:** `winget install Docker.DockerDesktop`
+  - **Otherwise:** download from https://www.docker.com/products/docker-desktop/
+  After installing Docker, they need to open Docker Desktop, wait for it
+  to start, then re-run the install command from Step 1.
 - **"✗" (any error)** — something went wrong. Help the user
   troubleshoot based on the error message.
 
@@ -59,8 +76,9 @@ If everything succeeded, tell the user:
 
 Tell the user:
 
-> Please **quit Claude Desktop completely** (on Mac: Claude menu → Quit
-> Claude, or Cmd+Q) and then **reopen it**.
+> Please **quit Claude Desktop completely** and then **reopen it**.
+> - On Mac: Claude menu → Quit Claude, or Cmd+Q
+> - On Windows: right-click the taskbar icon → Close window
 >
 > This is needed because Claude Desktop only loads MCP server
 > configurations at startup.
@@ -105,6 +123,7 @@ The config file may not have been written correctly. Ask the user to
 check if this file exists:
 
 - **Mac:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
 If it doesn't exist or doesn't contain a "pgedge" entry, help the user
 create or edit it with this content:
@@ -127,7 +146,8 @@ create or edit it with this content:
 ```
 
 Replace `HOME_DIR` with the user's actual home directory path (e.g.,
-`/Users/username`).
+`/Users/username` on Mac, `C:/Users/username` on Windows). On Windows,
+the binary is named `pgedge-postgres-mcp.exe`.
 
 ### Demo database not running
 
