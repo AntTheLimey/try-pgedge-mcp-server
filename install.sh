@@ -282,37 +282,53 @@ setup_demo_database() {
   esac
 }
 
+# ─── Find a free port ────────────────────────────────────────────────────────
+
+find_free_port() {
+  # Try preferred ports in order: 5432, 5433, 5434, 5435, 5436
+  for port in 5432 5433 5434 5435 5436; do
+    if ! lsof -i ":$port" >/dev/null 2>&1; then
+      echo "$port"
+      return
+    fi
+  done
+  # Last resort: let the OS pick
+  python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()" 2>/dev/null \
+    || echo "0"
+}
+
 # ─── Start demo Postgres container ──────────────────────────────────────────
 
 start_demo_postgres() {
-  # Check if port is already in use
-  if lsof -i ":$DEMO_PORT" >/dev/null 2>&1; then
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "pgedge-demo-db"; then
-      ok "Demo database already running on port $DEMO_PORT"
-      DB_HOST="localhost"; DB_PORT="$DEMO_PORT"; DB_NAME="northwind"
+  # Check if our demo container is already running
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "pgedge-demo-db"; then
+    # Find the port it's mapped to
+    local existing_port
+    existing_port=$(docker port pgedge-demo-db 5432 2>/dev/null | head -1 | cut -d: -f2)
+    if [ -n "$existing_port" ]; then
+      ok "Demo database already running on port $existing_port"
+      DB_HOST="localhost"; DB_PORT="$existing_port"; DB_NAME="northwind"
       DB_USER="demo"; DB_PASS="demo123"; DB_CONFIGURED=true
       return
     fi
-    warn "Port $DEMO_PORT is already in use by another service."
+  fi
 
-    if has_tty; then
-      echo ""
-      echo "  Would you like to connect to your own database instead?"
-      echo ""
-      local choice
-      ask "  Enter y or n: " choice
-      if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-        setup_own_database
-        return
-      fi
-    fi
-
+  # Find a free port
+  DEMO_PORT=$(find_free_port)
+  if [ "$DEMO_PORT" = "0" ]; then
+    warn "Could not find a free port for the demo database."
     DB_CONFIGURED=false
     return
   fi
 
+  if [ "$DEMO_PORT" != "5432" ]; then
+    info "Port 5432 is in use (probably an existing Postgres instance)."
+    info "Using port $DEMO_PORT for the demo database instead."
+  fi
+
   mkdir -p "$DEMO_DIR"
 
+  # Write docker-compose with placeholder port
   cat > "$DEMO_DIR/docker-compose.yml" << 'COMPOSE'
 services:
   postgres:
@@ -333,7 +349,7 @@ services:
         target: /docker-entrypoint-initdb.d/02-enable-extensions.sh
         mode: 0755
     ports:
-      - "5432:5432"
+      - "PGEDGE_HOST_PORT:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U demo -d northwind"]
@@ -365,8 +381,12 @@ configs:
       echo "Extensions enabled"
 COMPOSE
 
+  # Replace placeholder with actual port
+  sed -i.bak "s/PGEDGE_HOST_PORT/$DEMO_PORT/" "$DEMO_DIR/docker-compose.yml"
+  rm -f "$DEMO_DIR/docker-compose.yml.bak"
+
   echo ""
-  info "Starting demo Postgres with Northwind sample data..."
+  info "Starting demo Postgres with Northwind sample data on port $DEMO_PORT..."
   info "(first run downloads the image — this may take a minute)"
   echo ""
 
