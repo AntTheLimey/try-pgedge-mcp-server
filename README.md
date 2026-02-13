@@ -4,54 +4,36 @@ Talk to your PostgreSQL database in plain English. This demo gives you a
 running pgEdge MCP Server with the Northwind sample database — ready to
 query in under 60 seconds.
 
-## Install locally (Claude Code or Claude Desktop)
-
-One command installs the MCP server binary and a demo Postgres database
-with sample data.
-
-### macOS / Linux
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/AntTheLimey/try-pgedge-mcp-server/main/install.sh | bash
-```
-
-### Windows (PowerShell)
-
-```powershell
-irm https://raw.githubusercontent.com/AntTheLimey/try-pgedge-mcp-server/main/install.ps1 | iex
-```
-
-The installer will:
-1. Download the pgEdge MCP Server binary
-2. Optionally start a demo Postgres container (requires Docker)
-3. Configure Claude Code (`.mcp.json`) and Claude Desktop automatically
-
-After installing, restart Claude Desktop and ask:
-*"What tables are in my database?"*
-
----
-
 ## Open in GitHub Codespaces
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/AntTheLimey/try-pgedge-mcp-server)
 
-### Setup
+### Before you launch
 
-You need an API key from [Anthropic](https://console.anthropic.com/)
-or [OpenAI](https://platform.openai.com/).
+You'll need an API key from one of:
 
-**Fastest:** Before launching, add a
-[Codespace secret](https://github.com/settings/codespaces) named
-`PGEDGE_ANTHROPIC_API_KEY` with your key, and grant access to this repo.
-Everything starts automatically — no steps required.
+- [Anthropic](https://console.anthropic.com/) (recommended)
+- [OpenAI](https://platform.openai.com/)
 
-**After launch:** If you didn't set a secret, run this in the terminal:
+**Option A (smoothest):** Add your key as a
+[Codespace secret](https://github.com/settings/codespaces) before
+launching. Create a secret named `PGEDGE_ANTHROPIC_API_KEY`, paste your
+key, and grant access to this repo. The demo picks it up automatically.
 
-```
+**Option B:** Launch the Codespace, then run in the terminal:
+
+```bash
 ./set-key.sh anthropic sk-ant-your-key-here
 ```
 
-That's it. Services start, and the Web UI opens automatically.
+### Your API key stays private
+
+Your API key is stored in a `.env` file inside your personal Codespace
+instance — a private, ephemeral virtual machine that only you can access.
+The key is passed directly from your running Codespace to the LLM provider
+you chose (Anthropic or OpenAI) to process your natural language queries.
+**pgEdge never receives, stores, or proxies your API key.** When you
+delete your Codespace, the key is deleted with it.
 
 ## What's inside
 
@@ -64,7 +46,7 @@ That's it. Services start, and the Web UI opens automatically.
 
 ## Try these queries
 
-Login: `demo` / `demo123`
+Once the Web UI opens in your browser (login: `demo` / `demo123`):
 
 - "What tables are in the database?"
 - "Show me the top 10 products by sales"
@@ -80,6 +62,11 @@ docker compose restart          # Restart services
 docker compose down             # Stop
 docker compose down -v          # Stop and reset data
 ```
+
+## Install locally
+
+Want to run this on your own machine with Claude Code or Claude Desktop
+instead? See the [local install guide](local-install.md).
 
 ## Learn more
 
