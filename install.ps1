@@ -522,7 +522,7 @@ function Test-DbConnection {
         }
         $tcp.Close()
     } catch {
-        try { $tcp.Close() } catch {}
+        try { if ($tcp) { $tcp.Close() } } catch {}
     }
     return $false
 }
