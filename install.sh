@@ -13,7 +13,7 @@
 #   2. Helps you connect to a database (your own or a demo with sample data)
 #   3. Configures Claude Code (.mcp.json) and/or Claude Desktop
 #
-set -e
+set -eo pipefail
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -122,8 +122,12 @@ download_binary() {
 
 # ─── Docker detection and installation ──────────────────────────────────────
 
-has_docker() {
-  command -v docker &>/dev/null && docker info >/dev/null 2>&1
+docker_installed() {
+  command -v docker &>/dev/null
+}
+
+docker_running() {
+  docker info >/dev/null 2>&1
 }
 
 install_docker() {
@@ -155,7 +159,7 @@ install_docker() {
     linux)
       info "Installing Docker Engine..."
       curl -fsSL https://get.docker.com | sh
-      if has_docker; then
+      if docker_installed && docker_running; then
         ok "Docker installed successfully"
       else
         warn "Docker installed but may need a logout/login to take effect."
@@ -235,14 +239,52 @@ choose_database() {
 # ─── Demo database setup ────────────────────────────────────────────────────
 
 setup_demo_database() {
-  if has_docker; then
+  if docker_installed && docker_running; then
     start_demo_postgres
     return
   fi
 
-  # Docker not available — offer to install it
+  # Docker installed but not running
+  if docker_installed; then
+    echo ""
+    warn "Docker is installed but not running."
+    echo ""
+    echo "  Please start Docker Desktop and wait for it to finish starting,"
+    echo "  then re-run this installer."
+    echo ""
+
+    if ! has_tty; then
+      echo "DOCKER_NOT_RUNNING"
+      echo "Start Docker Desktop, then re-run with: --demo"
+      DB_CONFIGURED=false
+      return
+    fi
+
+    echo "  Options:"
+    echo ""
+    echo "    1) I'll start Docker Desktop and re-run this later"
+    echo "    2) Connect to my own database instead"
+    echo ""
+
+    local choice
+    ask "  Enter 1 or 2: " choice
+
+    case "$choice" in
+      2) setup_own_database ;;
+      *)
+        echo ""
+        echo "  Start Docker Desktop, wait for it to finish starting,"
+        echo "  then re-run this installer."
+        echo ""
+        DB_CONFIGURED=false
+        ;;
+    esac
+    return
+  fi
+
+  # Docker not installed at all
   echo ""
-  warn "Docker is not installed or not running."
+  warn "Docker is not installed."
   echo ""
   echo "  The sample database runs in a Docker container."
   echo "  Docker Desktop is free and takes about 5 minutes to install."
@@ -328,8 +370,8 @@ start_demo_postgres() {
 
   mkdir -p "$DEMO_DIR"
 
-  # Write docker-compose with placeholder port
-  cat > "$DEMO_DIR/docker-compose.yml" << 'COMPOSE'
+  # Write docker-compose with port substituted via bash (avoids sed cross-platform issues)
+  COMPOSE_CONTENT=$(cat << 'COMPOSE'
 services:
   postgres:
     image: ghcr.io/pgedge/pgedge-postgres:17-spock5-standard
@@ -380,10 +422,8 @@ configs:
         -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
       echo "Extensions enabled"
 COMPOSE
-
-  # Replace placeholder with actual port
-  sed -i.bak "s/PGEDGE_HOST_PORT/$DEMO_PORT/" "$DEMO_DIR/docker-compose.yml"
-  rm -f "$DEMO_DIR/docker-compose.yml.bak"
+)
+  echo "${COMPOSE_CONTENT//PGEDGE_HOST_PORT/$DEMO_PORT}" > "$DEMO_DIR/docker-compose.yml"
 
   echo ""
   info "Starting demo Postgres with Northwind sample data on port $DEMO_PORT..."
@@ -410,6 +450,63 @@ COMPOSE
   DB_USER="demo"; DB_PASS="demo123"; DB_CONFIGURED=true
 }
 
+# ─── Database connection test ───────────────────────────────────────────────
+
+test_db_connection() {
+  local host="$1" port="$2"
+  # Try pg_isready first (most reliable)
+  if command -v pg_isready &>/dev/null; then
+    if pg_isready -h "$host" -p "$port" -t 3 >/dev/null 2>&1; then
+      return 0
+    fi
+    return 1
+  fi
+  # Fallback: TCP connect via /dev/tcp (bash built-in)
+  if (echo >/dev/tcp/"$host"/"$port") 2>/dev/null; then
+    return 0
+  fi
+  # Fallback: nc/netcat
+  if command -v nc &>/dev/null; then
+    if nc -z -w 3 "$host" "$port" 2>/dev/null; then
+      return 0
+    fi
+    return 1
+  fi
+  # No way to test — assume OK
+  return 0
+}
+
+verify_own_db_connection() {
+  info "Testing connection to $DB_HOST:$DB_PORT..."
+  if test_db_connection "$DB_HOST" "$DB_PORT"; then
+    ok "Connection to $DB_HOST:$DB_PORT succeeded"
+    return
+  fi
+
+  echo ""
+  warn "Could not connect to $DB_NAME on $DB_HOST:$DB_PORT"
+  echo ""
+
+  if ! has_tty; then
+    warn "Continuing anyway — verify your connection details are correct."
+    return
+  fi
+
+  echo "  What would you like to do?"
+  echo ""
+  echo "    1) Re-enter connection details"
+  echo "    2) Continue anyway (I'll fix it later)"
+  echo ""
+
+  local choice
+  ask "  Enter 1 or 2: " choice
+
+  case "$choice" in
+    1) setup_own_database; return ;;
+    *) warn "Continuing — you can update .mcp.json later with the correct details." ;;
+  esac
+}
+
 # ─── Own database setup ─────────────────────────────────────────────────────
 
 setup_own_database() {
@@ -418,6 +515,7 @@ setup_own_database() {
     DB_PORT="${DB_PORT:-5432}"
     DB_CONFIGURED=true
     ok "Using database: $DB_NAME on $DB_HOST:$DB_PORT"
+    verify_own_db_connection
     return
   fi
 
@@ -450,6 +548,7 @@ setup_own_database() {
 
   DB_CONFIGURED=true
   ok "Using database: $DB_NAME on $DB_HOST:$DB_PORT"
+  verify_own_db_connection
 }
 
 # ─── Configure Claude Code ──────────────────────────────────────────────────

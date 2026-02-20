@@ -139,31 +139,34 @@ function Install-Binary {
 
 # --- Docker detection and installation ------------------------------------
 
-function Test-DockerInstalled {
-    # Is the docker CLI on PATH?
-    return [bool](Get-Command docker -ErrorAction SilentlyContinue)
+function Test-DockerDesktopInstalled {
+    # Check standard install path
+    if (Test-Path "C:\Program Files\Docker\Docker\Docker Desktop.exe") { return $true }
+    # Check registry uninstall key
+    $reg = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop" -ErrorAction SilentlyContinue
+    if ($reg) { return $true }
+    # Check CLI on PATH (original method, still useful)
+    if (Get-Command docker -ErrorAction SilentlyContinue) { return $true }
+    return $false
 }
 
 function Test-DockerRunning {
-    # Is the Docker daemon actually responding?
-    if (-not (Test-DockerInstalled)) { return $false }
-    # Temporarily relax error handling — docker info writes to stderr
-    # which PowerShell converts to a terminating error under 'Stop' mode
+    # Named pipe is reliable and doesn't need docker CLI on PATH
+    if (Test-Path "\\.\pipe\docker_engine") { return $true }
+    # Fallback to docker info if CLI is on PATH
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { return $false }
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = 'SilentlyContinue'
     try {
         $null = & docker info 2>$null
         return $LASTEXITCODE -eq 0
-    } catch {
-        return $false
-    } finally {
-        $ErrorActionPreference = $prevPref
-    }
+    } catch { return $false }
+    finally { $ErrorActionPreference = $prevPref }
 }
 
 function Install-DockerDesktop {
     # If Docker is already installed but just not running, don't reinstall
-    if (Test-DockerInstalled) {
+    if (Test-DockerDesktopInstalled) {
         Write-Host ""
         Write-Warn "Docker is installed but not running."
         Write-Host ""
@@ -182,7 +185,7 @@ function Install-DockerDesktop {
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Info "Installing via winget (this may take several minutes)..."
-        & winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements
+        & winget install -e --id Docker.DockerDesktop --no-upgrade --accept-source-agreements --accept-package-agreements
         Write-Host ""
         Write-Info "Docker Desktop installed. Please open Docker Desktop from"
         Write-Info "the Start menu, wait for it to start, then re-run this installer."
@@ -266,7 +269,7 @@ function Start-DemoDatabase {
     }
 
     # Docker installed but not running?
-    if (Test-DockerInstalled) {
+    if (Test-DockerDesktopInstalled) {
         Write-Host ""
         Write-Warn "Docker is installed but not running."
         Write-Host ""
@@ -365,17 +368,18 @@ function Find-FreePort {
 # --- Start demo Postgres container ----------------------------------------
 
 function Start-DemoPostgres {
-    # Relax error handling for all docker CLI calls in this function
-    $prevPref = $ErrorActionPreference
-    $ErrorActionPreference = 'SilentlyContinue'
-
     # Check if already running
-    $running = & docker ps --format '{{.Names}}' 2>$null | Select-String "pgedge-demo-db"
+    try {
+        $running = & docker ps --format '{{.Names}}' 2>$null | Select-String "pgedge-demo-db"
+    } catch { $running = $null }
+
     if ($running) {
-        $portMapping = & docker port pgedge-demo-db 5432 2>$null | Select-Object -First 1
+        try {
+            $portMapping = & docker port pgedge-demo-db 5432 2>$null | Select-Object -First 1
+        } catch { $portMapping = $null }
+
         if ($portMapping) {
             $existingPort = ($portMapping -split ':')[-1].Trim()
-            $ErrorActionPreference = $prevPref
             Write-Ok "Demo database already running on port $existingPort"
             $script:DbHost = "localhost"; $script:DbPort = $existingPort
             $script:DbName = "northwind"; $script:DbUser = "demo"
@@ -386,7 +390,6 @@ function Start-DemoPostgres {
 
     $script:DemoPort = Find-FreePort
     if ($script:DemoPort -eq 0) {
-        $ErrorActionPreference = $prevPref
         Write-Warn "Could not find a free port for the demo database."
         $script:DbConfigured = $false
         return
@@ -462,19 +465,24 @@ configs:
     Write-Host ""
 
     $composeFile = Join-Path $DemoDir "docker-compose.yml"
-    & docker compose -f $composeFile up -d 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        & docker-compose -f $composeFile up -d 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            $ErrorActionPreference = $prevPref
-            Write-Warn "Failed to start demo database."
-            $script:DbConfigured = $false
-            return
-        }
+    $started = $false
+    try {
+        & docker compose -f $composeFile up -d 2>$null
+        if ($LASTEXITCODE -eq 0) { $started = $true }
+    } catch {}
+
+    if (-not $started) {
+        try {
+            & docker-compose -f $composeFile up -d 2>$null
+            if ($LASTEXITCODE -eq 0) { $started = $true }
+        } catch {}
     }
 
-    # Restore error handling for the rest
-    $ErrorActionPreference = $prevPref
+    if (-not $started) {
+        Write-Warn "Failed to start demo database."
+        $script:DbConfigured = $false
+        return
+    }
 
     Write-Info "Waiting for database to be ready..."
     for ($i = 0; $i -lt 24; $i++) {
@@ -497,6 +505,49 @@ configs:
     $script:DbPass = "demo123"; $script:DbConfigured = $true
 }
 
+# --- Database connection test ---------------------------------------------
+
+function Test-DbConnection {
+    param([string]$Host_, [int]$Port)
+    Write-Info "Testing connection to ${Host_}:${Port}..."
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.ConnectAsync($Host_, $Port).Wait(3000) | Out-Null
+        $connected = $tcp.Connected
+        $tcp.Close()
+        if ($connected) {
+            Write-Ok "Connection to ${Host_}:${Port} succeeded"
+            return $true
+        }
+    } catch {}
+    return $false
+}
+
+function Confirm-OwnDbConnection {
+    if (Test-DbConnection $script:DbHost ([int]$script:DbPort)) { return }
+
+    Write-Host ""
+    Write-Warn "Could not connect to $($script:DbName) on $($script:DbHost):$($script:DbPort)"
+    Write-Host ""
+
+    if (-not (Test-Interactive)) {
+        Write-Warn "Continuing anyway — verify your connection details are correct."
+        return
+    }
+
+    Write-Host "  What would you like to do?"
+    Write-Host ""
+    Write-Host "    1) Re-enter connection details"
+    Write-Host "    2) Continue anyway (I'll fix it later)"
+    Write-Host ""
+
+    $choice = Read-Prompt "  Enter 1 or 2" "2"
+    switch ($choice) {
+        "1" { Set-OwnDatabase; return }
+        default { Write-Warn "Continuing — you can update .mcp.json later with the correct details." }
+    }
+}
+
 # --- Own database setup ---------------------------------------------------
 
 function Set-OwnDatabase {
@@ -505,6 +556,7 @@ function Set-OwnDatabase {
         if (-not $script:DbPort) { $script:DbPort = "5432" }
         $script:DbConfigured = $true
         Write-Ok "Using database: $($script:DbName) on $($script:DbHost):$($script:DbPort)"
+        Confirm-OwnDbConnection
         return
     }
 
@@ -531,6 +583,7 @@ function Set-OwnDatabase {
 
     $script:DbConfigured = $true
     Write-Ok "Using database: $($script:DbName) on $($script:DbHost):$($script:DbPort)"
+    Confirm-OwnDbConnection
 }
 
 # --- Configure Claude Code ------------------------------------------------
