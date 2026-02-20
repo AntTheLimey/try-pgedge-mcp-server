@@ -569,12 +569,13 @@ setup_own_database() {
 
 # ─── JSON helper ───────────────────────────────────────────────────────────
 
-# Escape a string for safe embedding in JSON (handles \, ", newlines, tabs)
+# Escape a string for safe embedding in JSON (handles \, ", control chars)
 json_escape() {
   local s="$1"
   s="${s//\\/\\\\}"    # \ → \\  (must be first)
   s="${s//\"/\\\"}"    # " → \"
   s="${s//$'\n'/\\n}"  # newline → \n
+  s="${s//$'\r'/\\r}"  # carriage return → \r
   s="${s//$'\t'/\\t}"  # tab → \t
   printf '%s' "$s"
 }
@@ -625,7 +626,8 @@ config["mcpServers"]["pgedge"] = {
 
 with open(config_file, "w") as f:
     json.dump(config, f, indent=2)
-' 2>/dev/null && return 0
+' && return 0
+    # python3 failed — fall through to manual JSON fallback
   fi
 
   # Fallback: no python3 — build JSON with escaped values
@@ -642,22 +644,8 @@ with open(config_file, "w") as f:
   j_user=$(json_escape "${DB_USER:-your_user}")
   j_pass=$(json_escape "${DB_PASS:-your_password}")
 
-  cat > "$config_file" << JSONEOF
-{
-  "mcpServers": {
-    "pgedge": {
-      "command": "$j_cmd",
-      "env": {
-        "PGHOST": "$j_host",
-        "PGPORT": "$j_port",
-        "PGDATABASE": "$j_db",
-        "PGUSER": "$j_user",
-        "PGPASSWORD": "$j_pass"
-      }
-    }
-  }
-}
-JSONEOF
+  printf '{\n  "mcpServers": {\n    "pgedge": {\n      "command": "%s",\n      "env": {\n        "PGHOST": "%s",\n        "PGPORT": "%s",\n        "PGDATABASE": "%s",\n        "PGUSER": "%s",\n        "PGPASSWORD": "%s"\n      }\n    }\n  }\n}\n' \
+    "$j_cmd" "$j_host" "$j_port" "$j_db" "$j_user" "$j_pass" > "$config_file"
   return 0
 }
 
