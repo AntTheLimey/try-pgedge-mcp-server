@@ -487,7 +487,7 @@ verify_own_db_connection() {
   fi
 
   echo ""
-  warn "Could not connect to $DB_NAME on $DB_HOST:$DB_PORT"
+  warn "Could not reach $DB_HOST:$DB_PORT (TCP connection failed)"
   echo ""
 
   if ! has_tty; then

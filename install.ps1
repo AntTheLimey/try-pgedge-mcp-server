@@ -531,7 +531,7 @@ function Confirm-OwnDbConnection {
     if (Test-DbConnection $script:DbHost ([int]$script:DbPort)) { return }
 
     Write-Host ""
-    Write-Warn "Could not connect to $($script:DbName) on $($script:DbHost):$($script:DbPort)"
+    Write-Warn "Could not reach $($script:DbHost):$($script:DbPort) (TCP connection failed)"
     Write-Host ""
 
     if (-not (Test-Interactive)) {
