@@ -67,9 +67,9 @@ function Test-Interactive {
 function Read-Prompt {
     param([string]$Prompt, [string]$Default)
     if (-not (Test-Interactive)) { return $Default }
-    $input = Read-Host -Prompt $Prompt
-    if ([string]::IsNullOrWhiteSpace($input)) { return $Default }
-    return $input
+    $response = Read-Host -Prompt $Prompt
+    if ([string]::IsNullOrWhiteSpace($response)) { return $Default }
+    return $response
 }
 
 # --- Detect platform ------------------------------------------------------
@@ -142,8 +142,10 @@ function Install-Binary {
 function Test-DockerDesktopInstalled {
     # Check standard install path
     if (Test-Path "C:\Program Files\Docker\Docker\Docker Desktop.exe") { return $true }
-    # Check registry uninstall key
+    # Check registry uninstall key (machine-wide and per-user installs)
     $reg = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop" -ErrorAction SilentlyContinue
+    if ($reg) { return $true }
+    $reg = Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop" -ErrorAction SilentlyContinue
     if ($reg) { return $true }
     # Check CLI on PATH (original method, still useful)
     if (Get-Command docker -ErrorAction SilentlyContinue) { return $true }
@@ -512,14 +514,16 @@ function Test-DbConnection {
     Write-Info "Testing connection to ${Host_}:${Port}..."
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
-        $tcp.ConnectAsync($Host_, $Port).Wait(3000) | Out-Null
-        $connected = $tcp.Connected
-        $tcp.Close()
-        if ($connected) {
+        $completed = $tcp.ConnectAsync($Host_, $Port).Wait(3000)
+        if ($completed -and $tcp.Connected) {
+            $tcp.Close()
             Write-Ok "Connection to ${Host_}:${Port} succeeded"
             return $true
         }
-    } catch {}
+        $tcp.Close()
+    } catch {
+        try { $tcp.Close() } catch {}
+    }
     return $false
 }
 
@@ -543,7 +547,13 @@ function Confirm-OwnDbConnection {
 
     $choice = Read-Prompt "  Enter 1 or 2" "2"
     switch ($choice) {
-        "1" { Set-OwnDatabase; return }
+        "1" {
+            # Clear previous values so Set-OwnDatabase re-prompts
+            $script:DbHost = ""; $script:DbPort = ""; $script:DbName = ""
+            $script:DbUser = ""; $script:DbPass = ""
+            Set-OwnDatabase
+            return
+        }
         default { Write-Warn "Continuing — you can update .mcp.json later with the correct details." }
     }
 }

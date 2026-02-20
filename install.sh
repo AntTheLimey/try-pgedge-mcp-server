@@ -52,7 +52,8 @@ fail()  { echo "  ✗  $*" >&2; exit 1; }
 ask() {
   local prompt="$1" var="$2"
   if [ -t 0 ] || [ -e /dev/tty ]; then
-    read -p "$prompt" "$var" < /dev/tty
+    # shellcheck disable=SC2229
+    read -r -p "$prompt" "$var" < /dev/tty
   else
     # Non-interactive — return empty (caller handles default)
     eval "$var=''"
@@ -85,8 +86,10 @@ detect_platform() {
 # ─── Get latest release version ─────────────────────────────────────────────
 
 get_latest_version() {
-  VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+  local response
+  response=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest") \
+    || fail "Could not fetch latest release from GitHub (network error or rate limit)"
+  VERSION=$(echo "$response" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4) || true
   [ -z "$VERSION" ] && fail "Could not determine latest release version"
   VERSION_NUM="${VERSION#v}"
 }
@@ -158,7 +161,7 @@ install_docker() {
       ;;
     linux)
       info "Installing Docker Engine..."
-      curl -fsSL https://get.docker.com | sh
+      curl -fsSL https://get.docker.com | sh || true
       if docker_installed && docker_running; then
         ok "Docker installed successfully"
       else
@@ -346,7 +349,7 @@ start_demo_postgres() {
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "pgedge-demo-db"; then
     # Find the port it's mapped to
     local existing_port
-    existing_port=$(docker port pgedge-demo-db 5432 2>/dev/null | head -1 | cut -d: -f2)
+    existing_port=$(docker port pgedge-demo-db 5432 2>/dev/null | head -1 | cut -d: -f2) || true
     if [ -n "$existing_port" ]; then
       ok "Demo database already running on port $existing_port"
       DB_HOST="localhost"; DB_PORT="$existing_port"; DB_NAME="northwind"
@@ -435,7 +438,7 @@ COMPOSE
     || { warn "Failed to start demo database."; DB_CONFIGURED=false; return; }
 
   info "Waiting for database to be ready..."
-  for i in $(seq 1 24); do
+  for _ in $(seq 1 24); do
     if docker exec pgedge-demo-db pg_isready -U demo -d northwind >/dev/null 2>&1; then
       ok "Demo database ready (northwind on localhost:$DEMO_PORT)"
       DB_HOST="localhost"; DB_PORT="$DEMO_PORT"; DB_NAME="northwind"
@@ -502,7 +505,12 @@ verify_own_db_connection() {
   ask "  Enter 1 or 2: " choice
 
   case "$choice" in
-    1) setup_own_database; return ;;
+    1)
+      # Clear previous values so setup_own_database re-prompts
+      DB_HOST="" DB_PORT="" DB_NAME="" DB_USER="" DB_PASS=""
+      setup_own_database
+      return
+      ;;
     *) warn "Continuing — you can update .mcp.json later with the correct details." ;;
   esac
 }
