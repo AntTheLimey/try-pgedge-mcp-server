@@ -116,7 +116,15 @@ download_binary() {
     tar xzf "$tmp_dir/$asset_name" -C "$tmp_dir/extracted"
   fi
 
-  cp "$tmp_dir/extracted/pgedge-postgres-mcp" "$BIN_DIR/pgedge-postgres-mcp"
+  # Find the binary in the extracted archive (may be in a subdirectory)
+  local binary
+  binary=$(find "$tmp_dir/extracted" -name "pgedge-postgres-mcp" -type f | head -1)
+  if [ -z "$binary" ]; then
+    binary=$(find "$tmp_dir/extracted" -name "pgedge-postgres-mcp*" -type f | head -1)
+  fi
+  [ -z "$binary" ] && fail "Binary not found in archive"
+
+  cp "$binary" "$BIN_DIR/pgedge-postgres-mcp"
   chmod +x "$BIN_DIR/pgedge-postgres-mcp"
   rm -rf "$tmp_dir"
 
@@ -559,47 +567,117 @@ setup_own_database() {
   verify_own_db_connection
 }
 
+# ─── JSON helper ───────────────────────────────────────────────────────────
+
+# Escape a string for safe embedding in JSON (handles \, ", newlines, tabs)
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"    # \ → \\  (must be first)
+  s="${s//\"/\\\"}"    # " → \"
+  s="${s//$'\n'/\\n}"  # newline → \n
+  s="${s//$'\t'/\\t}"  # tab → \t
+  printf '%s' "$s"
+}
+
+# Write pgedge MCP config into a JSON file using python3 (safe for all values).
+# Usage: write_mcp_config <config_file> <binary_path> [merge]
+# If "merge" is passed and the file exists, merges into existing mcpServers.
+write_mcp_config() {
+  local config_file="$1" binary_path="$2" merge="${3:-}"
+
+  if command -v python3 &>/dev/null; then
+    # Pass values via environment to avoid any shell/python injection
+    _MCP_FILE="$config_file" \
+    _MCP_CMD="$binary_path" \
+    _MCP_HOST="${DB_HOST:-localhost}" \
+    _MCP_PORT="${DB_PORT:-5432}" \
+    _MCP_DB="${DB_NAME:-your_database}" \
+    _MCP_USER="${DB_USER:-your_user}" \
+    _MCP_PASS="${DB_PASS:-your_password}" \
+    _MCP_MERGE="$merge" \
+    python3 -c '
+import json, os
+
+config_file = os.environ["_MCP_FILE"]
+merge = os.environ.get("_MCP_MERGE") == "merge"
+
+config = {}
+if merge:
+    try:
+        with open(config_file) as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        pass
+
+if "mcpServers" not in config:
+    config["mcpServers"] = {}
+
+config["mcpServers"]["pgedge"] = {
+    "command": os.environ["_MCP_CMD"],
+    "env": {
+        "PGHOST":     os.environ["_MCP_HOST"],
+        "PGPORT":     os.environ["_MCP_PORT"],
+        "PGDATABASE": os.environ["_MCP_DB"],
+        "PGUSER":     os.environ["_MCP_USER"],
+        "PGPASSWORD": os.environ["_MCP_PASS"],
+    }
+}
+
+with open(config_file, "w") as f:
+    json.dump(config, f, indent=2)
+' 2>/dev/null && return 0
+  fi
+
+  # Fallback: no python3 — build JSON with escaped values
+  if [ "$merge" = "merge" ] && [ -f "$config_file" ]; then
+    warn "python3 not found — cannot merge into existing $config_file."
+    warn "Overwriting file. Other MCP servers in this file will be lost."
+  fi
+
+  local j_cmd j_host j_port j_db j_user j_pass
+  j_cmd=$(json_escape "$binary_path")
+  j_host=$(json_escape "${DB_HOST:-localhost}")
+  j_port=$(json_escape "${DB_PORT:-5432}")
+  j_db=$(json_escape "${DB_NAME:-your_database}")
+  j_user=$(json_escape "${DB_USER:-your_user}")
+  j_pass=$(json_escape "${DB_PASS:-your_password}")
+
+  cat > "$config_file" << JSONEOF
+{
+  "mcpServers": {
+    "pgedge": {
+      "command": "$j_cmd",
+      "env": {
+        "PGHOST": "$j_host",
+        "PGPORT": "$j_port",
+        "PGDATABASE": "$j_db",
+        "PGUSER": "$j_user",
+        "PGPASSWORD": "$j_pass"
+      }
+    }
+  }
+}
+JSONEOF
+  return 0
+}
+
 # ─── Configure Claude Code ──────────────────────────────────────────────────
 
 configure_claude_code() {
   local mcp_json=".mcp.json"
   local binary_path="$BIN_DIR/pgedge-postgres-mcp"
+  local merge_flag=""
+  [ -f "$mcp_json" ] && merge_flag="merge"
 
-  local new_entry
-  new_entry=$(cat << ENTRY
-{
-  "mcpServers": {
-    "pgedge": {
-      "command": "$binary_path",
-      "env": {
-        "PGHOST": "${DB_HOST:-localhost}",
-        "PGPORT": "${DB_PORT:-5432}",
-        "PGDATABASE": "${DB_NAME:-your_database}",
-        "PGUSER": "${DB_USER:-your_user}",
-        "PGPASSWORD": "${DB_PASS:-your_password}"
-      }
-    }
-  }
-}
-ENTRY
-)
-
-  # Merge with existing .mcp.json if present
-  if [ -f "$mcp_json" ] && command -v python3 &>/dev/null; then
-    python3 -c "
-import json
-existing = json.load(open('$mcp_json'))
-new = json.loads('''$new_entry''')
-if 'mcpServers' not in existing:
-    existing['mcpServers'] = {}
-existing['mcpServers'].update(new['mcpServers'])
-json.dump(existing, open('$mcp_json', 'w'), indent=2)
-print('  ✓  Claude Code: merged pgedge into existing $mcp_json')
-" 2>/dev/null && return
+  if write_mcp_config "$mcp_json" "$binary_path" "$merge_flag"; then
+    if [ -n "$merge_flag" ]; then
+      ok "Claude Code: merged pgedge into existing $mcp_json"
+    else
+      ok "Claude Code: wrote $mcp_json"
+    fi
+  else
+    warn "Could not write $mcp_json"
   fi
-
-  echo "$new_entry" > "$mcp_json"
-  ok "Claude Code: wrote $mcp_json"
 }
 
 # ─── Configure Claude Desktop ───────────────────────────────────────────────
@@ -620,56 +698,12 @@ configure_claude_desktop() {
     return
   fi
 
-  if command -v python3 &>/dev/null; then
-    python3 -c "
-import json
-
-config_file = '$config_file'
-try:
-    with open(config_file) as f:
-        config = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    config = {}
-
-if 'mcpServers' not in config:
-    config['mcpServers'] = {}
-
-config['mcpServers']['pgedge'] = {
-    'command': '$binary_path',
-    'env': {
-        'PGHOST': '${DB_HOST:-localhost}',
-        'PGPORT': '${DB_PORT:-5432}',
-        'PGDATABASE': '${DB_NAME:-your_database}',
-        'PGUSER': '${DB_USER:-your_user}',
-        'PGPASSWORD': '${DB_PASS:-your_password}'
-    }
-}
-
-with open(config_file, 'w') as f:
-    json.dump(config, f, indent=2)
-print('  ✓  Claude Desktop: configured (restart Claude Desktop to activate)')
-" 2>/dev/null && return
+  # Always merge — Claude Desktop config may have other MCP servers
+  if write_mcp_config "$config_file" "$binary_path" "merge"; then
+    ok "Claude Desktop: configured (restart Claude Desktop to activate)"
+  else
+    warn "Could not write Claude Desktop config"
   fi
-
-  # Fallback: write new config
-  mkdir -p "$config_dir"
-  cat > "$config_file" << DESKTOP
-{
-  "mcpServers": {
-    "pgedge": {
-      "command": "$binary_path",
-      "env": {
-        "PGHOST": "${DB_HOST:-localhost}",
-        "PGPORT": "${DB_PORT:-5432}",
-        "PGDATABASE": "${DB_NAME:-your_database}",
-        "PGUSER": "${DB_USER:-your_user}",
-        "PGPASSWORD": "${DB_PASS:-your_password}"
-      }
-    }
-  }
-}
-DESKTOP
-  ok "Claude Desktop: wrote config (restart Claude Desktop to activate)"
 }
 
 # ─── Summary ─────────────────────────────────────────────────────────────────

@@ -608,18 +608,6 @@ function Set-ClaudeCodeConfig {
     $pgUser = if ($script:DbUser) { $script:DbUser } else { "your_user" }
     $pgPass = if ($script:DbPass) { $script:DbPass } else { "your_password" }
 
-    # Build the new config as a nested hashtable
-    $newPgedge = @{
-        command = $binaryPath
-        env = [ordered]@{
-            PGHOST     = $pgHost
-            PGPORT     = $pgPort
-            PGDATABASE = $pgDb
-            PGUSER     = $pgUser
-            PGPASSWORD = $pgPass
-        }
-    }
-
     if (Test-Path $mcpJson) {
         try {
             $raw = Get-Content $mcpJson -Raw
